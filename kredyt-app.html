@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kredyt hipoteczny – symulator (PKO BP)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  .card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04); padding: 1.25rem; }
+  .stat-label { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .stat-value { font-size: 1.5rem; font-weight: 700; color: #111827; margin-top: 0.25rem; }
+  .stat-sub { font-size: 0.85rem; color: #6b7280; margin-top: 0.25rem; }
+  .tab-btn { padding: 0.75rem 1.25rem; font-weight: 600; color: #6b7280; border-bottom: 3px solid transparent; cursor: pointer; transition: all .15s; }
+  .tab-btn:hover { color: #1f2937; }
+  .tab-btn.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+  table.sched { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  table.sched th { background: #f3f4f6; padding: 0.5rem 0.75rem; text-align: right; font-weight: 600; font-size: 0.75rem; color: #4b5563; text-transform: uppercase; position: sticky; top: 0; }
+  table.sched th:first-child, table.sched td:first-child { text-align: left; }
+  table.sched td { padding: 0.5rem 0.75rem; text-align: right; border-bottom: 1px solid #f3f4f6; }
+  table.sched tr.next { background: #fef3c7; font-weight: 600; }
+  table.sched tr.payoff { background: #d1fae5; font-weight: 600; }
+  input.field { padding: 0.5rem 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; width: 100%; font-size: 0.95rem; }
+  input.field:focus { outline: none; border-color: #1d4ed8; box-shadow: 0 0 0 3px rgba(29,78,216,.15); }
+  button.btn { padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: 600; cursor: pointer; transition: all .15s; }
+  button.btn-primary { background: #1d4ed8; color: white; }
+  button.btn-primary:hover { background: #1e40af; }
+  button.btn-danger { background: #fee2e2; color: #b91c1c; padding: 0.25rem 0.6rem; font-size: .8rem; }
+  button.btn-danger:hover { background: #fecaca; }
+  .compare-card { padding: 1rem; border-radius: 0.5rem; }
+  .compare-card.base { background: #f3f4f6; }
+  .compare-card.scenA { background: #dbeafe; }
+  .compare-card.scenB { background: #d1fae5; }
+  .saved-flash { animation: flash 1s ease-out; }
+  @keyframes flash { 0% { background: #fef9c3; } 100% { background: white; } }
+  .chart-wrap { position: relative; height: 150px; width: 100%; }
+  @media (min-width: 1024px) { .chart-wrap { height: 170px; } }
+  .card { padding: 0.85rem 1rem; }
+  .card h3 { margin-bottom: 0.4rem; }
+</style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+<div class="max-w-7xl mx-auto p-4 md:p-6">
+
+  <!-- HEADER -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold text-gray-900">Kredyt hipoteczny – symulator</h1>
+      <p class="text-sm text-gray-500">PKO BP · Własny Kąt Hipoteczny · Grzegorz Najder</p>
+    </div>
+    <div class="text-right text-sm text-gray-600">
+      <div>Dzisiaj: <span id="today-date" class="font-semibold"></span></div>
+      <div id="snapshot-date" class="text-xs text-gray-400">stan z dnia symulacji: 08.05.2026</div>
+    </div>
+  </div>
+
+  <!-- STAT CARDS -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="stats-grid"></div>
+
+  <!-- TABS -->
+  <div class="bg-white rounded-t-xl shadow flex border-b border-gray-200 overflow-x-auto">
+    <div class="tab-btn active" data-tab="dashboard">Pulpit</div>
+    <div class="tab-btn" data-tab="simulator">Symulator nadpłat</div>
+    <div class="tab-btn" data-tab="overpayments">Moje nadpłaty</div>
+    <div class="tab-btn" data-tab="schedule">Pełny harmonogram</div>
+    <div class="tab-btn" data-tab="info">Dane umowy</div>
+  </div>
+
+  <div class="bg-white rounded-b-xl shadow p-4 md:p-6">
+
+    <!-- TAB: DASHBOARD -->
+    <div class="tab-content" id="tab-dashboard">
+      <h2 class="text-lg font-bold mb-3">Wykresy bieżącego harmonogramu</h2>
+      <p class="text-sm text-gray-500 mb-4">Bazowy harmonogram banku (bez nadpłat). Linia wykresu spłaty pokazuje również scenariusz z aktualnie wpisanymi nadpłatami.</p>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="card">
+          <h3 class="font-semibold text-gray-700 mb-2 text-sm">Pozostały kapitał w czasie</h3>
+          <div class="chart-wrap"><canvas id="chart-capital"></canvas></div>
+        </div>
+        <div class="card">
+          <h3 class="font-semibold text-gray-700 mb-2 text-sm">Kapitał vs odsetki (półrocznie)</h3>
+          <div class="chart-wrap"><canvas id="chart-split"></canvas></div>
+        </div>
+        <div class="card">
+          <h3 class="font-semibold text-gray-700 mb-2 text-sm">Skumulowane odsetki</h3>
+          <div class="chart-wrap"><canvas id="chart-interest-cum"></canvas></div>
+        </div>
+        <div class="card">
+          <h3 class="font-semibold text-gray-700 mb-2 text-sm">Roczne podsumowanie wpłat</h3>
+          <div class="chart-wrap"><canvas id="chart-yearly"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: SIMULATOR -->
+    <div class="tab-content hidden" id="tab-simulator">
+      <h2 class="text-lg font-bold mb-3">Symulator nadpłat</h2>
+
+      <details class="mb-4 card bg-blue-50 border border-blue-100">
+        <summary class="cursor-pointer font-semibold text-blue-900 text-sm">Jak bank rozlicza nadpłatę? (kliknij, by rozwinąć)</summary>
+        <div class="mt-3 text-sm text-gray-700 space-y-2">
+          <p><strong>Typ rat:</strong> raty równe (annuitetowe) – każda rata to ta sama kwota (1134,41 PLN), ale na początku okresu większą część stanowią odsetki, a z czasem coraz więcej idzie na kapitał.</p>
+          <p><strong>Wzór raty:</strong> <code class="bg-white px-1 rounded">M = K · r / (1 − (1 + r)<sup>−n</sup>)</code>, gdzie <em>K</em> = pozostały kapitał, <em>r</em> = miesięczna stopa (5,60% / 12), <em>n</em> = liczba pozostałych miesięcy.</p>
+          <p><strong>Odsetki naliczane dziennie:</strong> <code class="bg-white px-1 rounded">odsetki = K · 5,60% · dni / 365</code>. Dlatego w harmonogramie odsetki nieznacznie się różnią między miesiącami (28/30/31 dni).</p>
+          <p><strong>Po nadpłacie</strong> (Twoja opcja: <em>zmniejszenie raty</em>): bank zostawia tę samą datę końcową kredytu i przelicza ratę wzorem annuitetowym z <strong>nowym, niższym kapitałem</strong> i <strong>niezmienioną liczbą pozostałych miesięcy</strong>. Dlatego po każdej nadpłacie rata maleje.</p>
+          <p><strong>Co robi ten symulator:</strong> w każdym miesiącu nalicza odsetki od pozostałego kapitału, odejmuje część kapitałową raty + nadpłaty, a następnie przelicza nową ratę banku tym samym wzorem. Kiedy pozostały kapitał spadnie do progu (domyślnie 2000 PLN) – jednorazowo dopłaca resztę.</p>
+        </div>
+      </details>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <!-- Scenariusz A -->
+        <div class="card">
+          <h3 class="font-semibold text-blue-700 mb-3">Scenariusz A: stała miesięczna nadpłata</h3>
+          <p class="text-sm text-gray-500 mb-3">Co miesiąc oprócz raty banku wpłacasz dodatkowo:</p>
+          <div class="flex items-center gap-2">
+            <input type="number" id="input-monthly-extra" class="field" placeholder="np. 500" step="50">
+            <span class="font-semibold">PLN/mc</span>
+          </div>
+          <p class="text-xs text-gray-400 mt-2">Kwota dolicza się ponad bieżącą ratę banku (która maleje po nadpłatach).</p>
+        </div>
+
+        <!-- Scenariusz B -->
+        <div class="card">
+          <h3 class="font-semibold text-green-700 mb-3">Scenariusz B: stała podwyższona rata</h3>
+          <p class="text-sm text-gray-500 mb-3">Co miesiąc płacisz łącznie tę samą kwotę (większą niż 1134,41):</p>
+          <div class="flex items-center gap-2">
+            <input type="number" id="input-fixed-total" class="field" placeholder="np. 1500" step="50">
+            <span class="font-semibold">PLN/mc</span>
+          </div>
+          <p class="text-xs text-gray-400 mt-2">Cała różnica ponad odsetki idzie w kapitał.</p>
+        </div>
+      </div>
+
+      <div class="card mb-6">
+        <h3 class="font-semibold mb-3">Ustawienia ogólne</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label class="stat-label">Próg końcowej spłaty</label>
+            <div class="flex items-center gap-2 mt-1">
+              <input type="number" id="input-payoff" class="field" step="100">
+              <span class="font-semibold">PLN</span>
+            </div>
+            <p class="text-xs text-gray-400 mt-1">Gdy pozostały kapitał spadnie do tej kwoty – jednorazowa spłata reszty.</p>
+          </div>
+          <div>
+            <label class="stat-label">Oprocentowanie do symulacji</label>
+            <div class="flex items-center gap-2 mt-1">
+              <input type="number" id="input-rate" class="field" step="0.01">
+              <span class="font-semibold">%</span>
+            </div>
+            <p class="text-xs text-gray-400 mt-1">Domyślnie aktualne 5,60%.</p>
+          </div>
+          <div class="flex items-end">
+            <button class="btn btn-primary w-full" id="btn-recalc">Przelicz scenariusze</button>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="text-lg font-bold mb-3">Porównanie scenariuszy</h3>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6" id="compare-cards"></div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="card">
+          <h3 class="font-semibold text-gray-700 mb-2 text-sm">Pozostały kapitał – porównanie</h3>
+          <div class="chart-wrap"><canvas id="chart-compare"></canvas></div>
+        </div>
+        <div class="card">
+          <h3 class="font-semibold text-gray-700 mb-2 text-sm">Łącznie zapłacone (skumulowane)</h3>
+          <div class="chart-wrap"><canvas id="chart-compare-paid"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: OVERPAYMENTS -->
+    <div class="tab-content hidden" id="tab-overpayments">
+      <h2 class="text-lg font-bold mb-3">Nadpłaty jednorazowe</h2>
+      <p class="text-sm text-gray-500 mb-4">Wpisuj na bieżąco każdą faktyczną nadpłatę. Aplikacja zapamiętuje listę i uwzględnia ją we wszystkich symulacjach.</p>
+
+      <div class="card mb-4">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+          <div>
+            <label class="stat-label">Data nadpłaty</label>
+            <input type="date" id="op-date" class="field mt-1">
+          </div>
+          <div>
+            <label class="stat-label">Kwota (PLN)</label>
+            <input type="number" id="op-amount" class="field mt-1" placeholder="np. 5000" step="100">
+          </div>
+          <div>
+            <label class="stat-label">Opis (opcjonalnie)</label>
+            <input type="text" id="op-note" class="field mt-1" placeholder="np. premia roczna">
+          </div>
+          <div>
+            <button class="btn btn-primary w-full" id="btn-add-op">Dodaj nadpłatę</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="font-semibold mb-3">Zapisane nadpłaty</h3>
+        <div id="op-list" class="space-y-2"></div>
+        <div id="op-empty" class="text-sm text-gray-400 italic">Brak zapisanych nadpłat.</div>
+        <div class="mt-4 pt-4 border-t border-gray-100 text-sm text-gray-600">
+          Suma nadpłat: <span class="font-bold text-gray-900" id="op-sum">0 PLN</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: SCHEDULE -->
+    <div class="tab-content hidden" id="tab-schedule">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-bold">Pełny harmonogram</h2>
+        <div class="flex gap-2">
+          <select id="schedule-mode" class="field" style="width:auto">
+            <option value="base">Bazowy (bez nadpłat)</option>
+            <option value="A">Ze scenariuszem A (miesięczna nadpłata)</option>
+            <option value="B">Ze scenariuszem B (stała podwyższona rata)</option>
+          </select>
+        </div>
+      </div>
+      <div class="overflow-auto" style="max-height:600px">
+        <table class="sched">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Data</th>
+              <th>Kapitał</th>
+              <th>Odsetki</th>
+              <th>Rata</th>
+              <th>Pozostały kapitał</th>
+            </tr>
+          </thead>
+          <tbody id="schedule-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB: INFO -->
+    <div class="tab-content hidden" id="tab-info">
+      <h2 class="text-lg font-bold mb-3">Dane umowy kredytowej</h2>
+      <div class="card max-w-2xl">
+        <table class="w-full text-sm">
+          <tbody id="info-table" class="divide-y divide-gray-100"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <p class="text-center text-xs text-gray-400 mt-6">
+    Symulacja orientacyjna. Faktyczne raty mogą się różnić w zależności od zmian oprocentowania i sposobu naliczania odsetek przez bank.
+  </p>
+</div>
+
+<script>
+// ============= LOAN DATA FROM PDF (snapshot 2026-05-08) =============
+const LOAN = {
+  account: '19102023840000969600723148',
+  type: 'PAKIET-WŁASNY KĄT HIPOTECZNY W PLN',
+  startDate: '2017-03-14',
+  amount: 206500.00,
+  totalMonths: 302,
+  graceMonths: 22,
+  rate: 5.60,
+  remainingCapital: 144054.23,
+  remainingInterest: 73830.42,
+  totalRemaining: 217884.65,
+  installmentsTotal: 296,    // ostatnia rata o numerze 296 (mała, końcowa)
+  installmentsPaid: 103,     // do dnia 2026-05-08
+  baseInstallment: 1134.41,
+  snapshotDate: '2026-05-08',
+  firstPendingNo: 104,
+  firstPendingDate: '2026-05-15'
+};
+
+// ============= ORIGINAL SCHEDULE FROM PDF =============
+// n: numer raty, d: data, k: rata kapitałowa, o: rata odsetkowa, r: całkowita rata, p: kapitał pozostały po racie
+const SCHEDULE = [
+  {n:104,d:'2026-05-15',k:891.29,o:243.12,r:1134.41,p:143162.94},
+  {n:105,d:'2026-06-15',k:453.50,o:680.91,r:1134.41,p:142709.44},
+  {n:106,d:'2026-07-15',k:477.56,o:656.85,r:1134.41,p:142231.88},
+  {n:107,d:'2026-08-15',k:457.93,o:676.48,r:1134.41,p:141773.95},
+  {n:108,d:'2026-09-15',k:460.11,o:674.30,r:1134.41,p:141313.84},
+  {n:109,d:'2026-10-15',k:483.98,o:650.43,r:1134.41,p:140829.86},
+  {n:110,d:'2026-11-15',k:464.60,o:669.81,r:1134.41,p:140365.26},
+  {n:111,d:'2026-12-15',k:488.35,o:646.06,r:1134.41,p:139876.91},
+  {n:112,d:'2027-01-15',k:469.13,o:665.28,r:1134.41,p:139407.78},
+  {n:113,d:'2027-02-15',k:471.36,o:663.05,r:1134.41,p:138936.42},
+  {n:114,d:'2027-03-15',k:537.55,o:596.86,r:1134.41,p:138398.87},
+  {n:115,d:'2027-04-15',k:476.16,o:658.25,r:1134.41,p:137922.71},
+  {n:116,d:'2027-05-15',k:499.59,o:634.82,r:1134.41,p:137423.12},
+  {n:117,d:'2027-06-15',k:480.80,o:653.61,r:1134.41,p:136942.32},
+  {n:118,d:'2027-07-15',k:504.10,o:630.31,r:1134.41,p:136438.22},
+  {n:119,d:'2027-08-15',k:485.49,o:648.92,r:1134.41,p:135952.73},
+  {n:120,d:'2027-09-15',k:487.80,o:646.61,r:1134.41,p:135464.93},
+  {n:121,d:'2027-10-15',k:510.90,o:623.51,r:1134.41,p:134954.03},
+  {n:122,d:'2027-11-15',k:492.55,o:641.86,r:1134.41,p:134461.48},
+  {n:123,d:'2027-12-15',k:515.52,o:618.89,r:1134.41,p:133945.96},
+  {n:124,d:'2028-01-15',k:497.34,o:637.07,r:1134.41,p:133448.62},
+  {n:125,d:'2028-02-15',k:499.71,o:634.70,r:1134.41,p:132948.91},
+  {n:126,d:'2028-03-15',k:542.88,o:591.53,r:1134.41,p:132406.03},
+  {n:127,d:'2028-04-15',k:504.67,o:629.74,r:1134.41,p:131901.36},
+  {n:128,d:'2028-05-15',k:527.30,o:607.11,r:1134.41,p:131374.06},
+  {n:129,d:'2028-06-15',k:509.57,o:624.84,r:1134.41,p:130864.49},
+  {n:130,d:'2028-07-15',k:532.07,o:602.34,r:1134.41,p:130332.42},
+  {n:131,d:'2028-08-15',k:514.53,o:619.88,r:1134.41,p:129817.89},
+  {n:132,d:'2028-09-15',k:516.97,o:617.44,r:1134.41,p:129300.92},
+  {n:133,d:'2028-10-15',k:539.27,o:595.14,r:1134.41,p:128761.65},
+  {n:134,d:'2028-11-15',k:522.00,o:612.41,r:1134.41,p:128239.65},
+  {n:135,d:'2028-12-15',k:544.16,o:590.25,r:1134.41,p:127695.49},
+  {n:136,d:'2029-01-15',k:527.07,o:607.34,r:1134.41,p:127168.42},
+  {n:137,d:'2029-02-15',k:529.58,o:604.83,r:1134.41,p:126638.84},
+  {n:138,d:'2029-03-15',k:590.38,o:544.03,r:1134.41,p:126048.46},
+  {n:139,d:'2029-04-15',k:534.90,o:599.51,r:1134.41,p:125513.56},
+  {n:140,d:'2029-05-15',k:556.70,o:577.71,r:1134.41,p:124956.86},
+  {n:141,d:'2029-06-15',k:540.09,o:594.32,r:1134.41,p:124416.77},
+  {n:142,d:'2029-07-15',k:561.75,o:572.66,r:1134.41,p:123855.02},
+  {n:143,d:'2029-08-15',k:545.34,o:589.07,r:1134.41,p:123309.68},
+  {n:144,d:'2029-09-15',k:547.93,o:586.48,r:1134.41,p:122761.75},
+  {n:145,d:'2029-10-15',k:569.37,o:565.04,r:1134.41,p:122192.38},
+  {n:146,d:'2029-11-15',k:553.24,o:581.17,r:1134.41,p:121639.14},
+  {n:147,d:'2029-12-15',k:574.54,o:559.87,r:1134.41,p:121064.60},
+  {n:148,d:'2030-01-15',k:558.61,o:575.80,r:1134.41,p:120505.99},
+  {n:149,d:'2030-02-15',k:561.26,o:573.15,r:1134.41,p:119944.73},
+  {n:150,d:'2030-03-15',k:619.14,o:515.27,r:1134.41,p:119325.59},
+  {n:151,d:'2030-04-15',k:566.88,o:567.53,r:1134.41,p:118758.71},
+  {n:152,d:'2030-05-15',k:587.79,o:546.62,r:1134.41,p:118170.92},
+  {n:153,d:'2030-06-15',k:572.37,o:562.04,r:1134.41,p:117598.55},
+  {n:154,d:'2030-07-15',k:593.13,o:541.28,r:1134.41,p:117005.42},
+  {n:155,d:'2030-08-15',k:577.91,o:556.50,r:1134.41,p:116427.51},
+  {n:156,d:'2030-09-15',k:580.66,o:553.75,r:1134.41,p:115846.85},
+  {n:157,d:'2030-10-15',k:601.20,o:533.21,r:1134.41,p:115245.65},
+  {n:158,d:'2030-11-15',k:586.28,o:548.13,r:1134.41,p:114659.37},
+  {n:159,d:'2030-12-15',k:606.66,o:527.75,r:1134.41,p:114052.71},
+  {n:160,d:'2031-01-15',k:591.96,o:542.45,r:1134.41,p:113460.75},
+  {n:161,d:'2031-02-15',k:594.77,o:539.64,r:1134.41,p:112865.98},
+  {n:162,d:'2031-03-15',k:649.55,o:484.86,r:1134.41,p:112216.43},
+  {n:163,d:'2031-04-15',k:600.69,o:533.72,r:1134.41,p:111615.74},
+  {n:164,d:'2031-05-15',k:620.67,o:513.74,r:1134.41,p:110995.07},
+  {n:165,d:'2031-06-15',k:606.50,o:527.91,r:1134.41,p:110388.57},
+  {n:166,d:'2031-07-15',k:626.32,o:508.09,r:1134.41,p:109762.25},
+  {n:167,d:'2031-08-15',k:612.36,o:522.05,r:1134.41,p:109149.89},
+  {n:168,d:'2031-09-15',k:615.28,o:519.13,r:1134.41,p:108534.61},
+  {n:169,d:'2031-10-15',k:634.85,o:499.56,r:1134.41,p:107899.76},
+  {n:170,d:'2031-11-15',k:621.22,o:513.19,r:1134.41,p:107278.54},
+  {n:171,d:'2031-12-15',k:640.63,o:493.78,r:1134.41,p:106637.91},
+  {n:172,d:'2032-01-15',k:627.22,o:507.19,r:1134.41,p:106010.69},
+  {n:173,d:'2032-02-15',k:630.21,o:504.20,r:1134.41,p:105380.48},
+  {n:174,d:'2032-03-15',k:665.54,o:468.87,r:1134.41,p:104714.94},
+  {n:175,d:'2032-04-15',k:636.37,o:498.04,r:1134.41,p:104078.57},
+  {n:176,d:'2032-05-15',k:655.36,o:479.05,r:1134.41,p:103423.21},
+  {n:177,d:'2032-06-15',k:642.51,o:491.90,r:1134.41,p:102780.70},
+  {n:178,d:'2032-07-15',k:661.34,o:473.07,r:1134.41,p:102119.36},
+  {n:179,d:'2032-08-15',k:648.71,o:485.70,r:1134.41,p:101470.65},
+  {n:180,d:'2032-09-15',k:651.80,o:482.61,r:1134.41,p:100818.85},
+  {n:181,d:'2032-10-15',k:670.37,o:464.04,r:1134.41,p:100148.48},
+  {n:182,d:'2032-11-15',k:658.09,o:476.32,r:1134.41,p:99490.39},
+  {n:183,d:'2032-12-15',k:676.48,o:457.93,r:1134.41,p:98813.91},
+  {n:184,d:'2033-01-15',k:664.43,o:469.98,r:1134.41,p:98149.48},
+  {n:185,d:'2033-02-15',k:667.59,o:466.82,r:1134.41,p:97481.89},
+  {n:186,d:'2033-03-15',k:715.64,o:418.77,r:1134.41,p:96766.25},
+  {n:187,d:'2033-04-15',k:674.17,o:460.24,r:1134.41,p:96092.08},
+  {n:188,d:'2033-05-15',k:692.12,o:442.29,r:1134.41,p:95399.96},
+  {n:189,d:'2033-06-15',k:680.67,o:453.74,r:1134.41,p:94719.29},
+  {n:190,d:'2033-07-15',k:698.44,o:435.97,r:1134.41,p:94020.85},
+  {n:191,d:'2033-08-15',k:687.23,o:447.18,r:1134.41,p:93333.62},
+  {n:192,d:'2033-09-15',k:690.50,o:443.91,r:1134.41,p:92643.12},
+  {n:193,d:'2033-10-15',k:708.00,o:426.41,r:1134.41,p:91935.12},
+  {n:194,d:'2033-11-15',k:697.15,o:437.26,r:1134.41,p:91237.97},
+  {n:195,d:'2033-12-15',k:714.47,o:419.94,r:1134.41,p:90523.50},
+  {n:196,d:'2034-01-15',k:703.87,o:430.54,r:1134.41,p:89819.63},
+  {n:197,d:'2034-02-15',k:707.21,o:427.20,r:1134.41,p:89112.42},
+  {n:198,d:'2034-03-15',k:751.59,o:382.82,r:1134.41,p:88360.83},
+  {n:199,d:'2034-04-15',k:714.15,o:420.26,r:1134.41,p:87646.68},
+  {n:200,d:'2034-05-15',k:731.00,o:403.41,r:1134.41,p:86915.68},
+  {n:201,d:'2034-06-15',k:721.02,o:413.39,r:1134.41,p:86194.66},
+  {n:202,d:'2034-07-15',k:737.68,o:396.73,r:1134.41,p:85456.98},
+  {n:203,d:'2034-08-15',k:727.96,o:406.45,r:1134.41,p:84729.02},
+  {n:204,d:'2034-09-15',k:731.42,o:402.99,r:1134.41,p:83997.60},
+  {n:205,d:'2034-10-15',k:747.79,o:386.62,r:1134.41,p:83249.81},
+  {n:206,d:'2034-11-15',k:738.46,o:395.95,r:1134.41,p:82511.35},
+  {n:207,d:'2034-12-15',k:754.63,o:379.78,r:1134.41,p:81756.72},
+  {n:208,d:'2035-01-15',k:745.56,o:388.85,r:1134.41,p:81011.16},
+  {n:209,d:'2035-02-15',k:749.11,o:385.30,r:1134.41,p:80262.05},
+  {n:210,d:'2035-03-15',k:789.61,o:344.80,r:1134.41,p:79472.44},
+  {n:211,d:'2035-04-15',k:756.43,o:377.98,r:1134.41,p:78716.01},
+  {n:212,d:'2035-05-15',k:772.10,o:362.31,r:1134.41,p:77943.91},
+  {n:213,d:'2035-06-15',k:763.70,o:370.71,r:1134.41,p:77180.21},
+  {n:214,d:'2035-07-15',k:779.17,o:355.24,r:1134.41,p:76401.04},
+  {n:215,d:'2035-08-15',k:771.03,o:363.38,r:1134.41,p:75630.01},
+  {n:216,d:'2035-09-15',k:774.70,o:359.71,r:1134.41,p:74855.31},
+  {n:217,d:'2035-10-15',k:789.87,o:344.54,r:1134.41,p:74065.44},
+  {n:218,d:'2035-11-15',k:782.14,o:352.27,r:1134.41,p:73283.30},
+  {n:219,d:'2035-12-15',k:797.11,o:337.30,r:1134.41,p:72486.19},
+  {n:220,d:'2036-01-15',k:789.65,o:344.76,r:1134.41,p:71696.54},
+  {n:221,d:'2036-02-15',k:793.41,o:341.00,r:1134.41,p:70903.13},
+  {n:222,d:'2036-03-15',k:818.94,o:315.47,r:1134.41,p:70084.19},
+  {n:223,d:'2036-04-15',k:801.08,o:333.33,r:1134.41,p:69283.11},
+  {n:224,d:'2036-05-15',k:815.52,o:318.89,r:1134.41,p:68467.59},
+  {n:225,d:'2036-06-15',k:808.77,o:325.64,r:1134.41,p:67658.82},
+  {n:226,d:'2036-07-15',k:822.99,o:311.42,r:1134.41,p:66835.83},
+  {n:227,d:'2036-08-15',k:816.53,o:317.88,r:1134.41,p:66019.30},
+  {n:228,d:'2036-09-15',k:820.41,o:314.00,r:1134.41,p:65198.89},
+  {n:229,d:'2036-10-15',k:834.32,o:300.09,r:1134.41,p:64364.57},
+  {n:230,d:'2036-11-15',k:828.28,o:306.13,r:1134.41,p:63536.29},
+  {n:231,d:'2036-12-15',k:841.97,o:292.44,r:1134.41,p:62694.32},
+  {n:232,d:'2037-01-15',k:836.23,o:298.18,r:1134.41,p:61858.09},
+  {n:233,d:'2037-02-15',k:840.20,o:294.21,r:1134.41,p:61017.89},
+  {n:234,d:'2037-03-15',k:872.28,o:262.13,r:1134.41,p:60145.61},
+  {n:235,d:'2037-04-15',k:848.35,o:286.06,r:1134.41,p:59297.26},
+  {n:236,d:'2037-05-15',k:861.48,o:272.93,r:1134.41,p:58435.78},
+  {n:237,d:'2037-06-15',k:856.48,o:277.93,r:1134.41,p:57579.30},
+  {n:238,d:'2037-07-15',k:869.39,o:265.02,r:1134.41,p:56709.91},
+  {n:239,d:'2037-08-15',k:864.69,o:269.72,r:1134.41,p:55845.22},
+  {n:240,d:'2037-09-15',k:868.80,o:265.61,r:1134.41,p:54976.42},
+  {n:241,d:'2037-10-15',k:881.37,o:253.04,r:1134.41,p:54095.05},
+  {n:242,d:'2037-11-15',k:877.13,o:257.28,r:1134.41,p:53217.92},
+  {n:243,d:'2037-12-15',k:889.46,o:244.95,r:1134.41,p:52328.46},
+  {n:244,d:'2038-01-15',k:885.53,o:248.88,r:1134.41,p:51442.93},
+  {n:245,d:'2038-02-15',k:889.74,o:244.67,r:1134.41,p:50553.19},
+  {n:246,d:'2038-03-15',k:917.24,o:217.17,r:1134.41,p:49635.95},
+  {n:247,d:'2038-04-15',k:898.33,o:236.08,r:1134.41,p:48737.62},
+  {n:248,d:'2038-05-15',k:910.08,o:224.33,r:1134.41,p:47827.54},
+  {n:249,d:'2038-06-15',k:906.93,o:227.48,r:1134.41,p:46920.61},
+  {n:250,d:'2038-07-15',k:918.45,o:215.96,r:1134.41,p:46002.16},
+  {n:251,d:'2038-08-15',k:915.62,o:218.79,r:1134.41,p:45086.54},
+  {n:252,d:'2038-09-15',k:919.97,o:214.44,r:1134.41,p:44166.57},
+  {n:253,d:'2038-10-15',k:931.12,o:203.29,r:1134.41,p:43235.45},
+  {n:254,d:'2038-11-15',k:928.78,o:205.63,r:1134.41,p:42306.67},
+  {n:255,d:'2038-12-15',k:939.68,o:194.73,r:1134.41,p:41366.99},
+  {n:256,d:'2039-01-15',k:937.66,o:196.75,r:1134.41,p:40429.33},
+  {n:257,d:'2039-02-15',k:942.12,o:192.29,r:1134.41,p:39487.21},
+  {n:258,d:'2039-03-15',k:964.78,o:169.63,r:1134.41,p:38522.43},
+  {n:259,d:'2039-04-15',k:951.19,o:183.22,r:1134.41,p:37571.24},
+  {n:260,d:'2039-05-15',k:961.48,o:172.93,r:1134.41,p:36609.76},
+  {n:261,d:'2039-06-15',k:960.29,o:174.12,r:1134.41,p:35649.47},
+  {n:262,d:'2039-07-15',k:970.32,o:164.09,r:1134.41,p:34679.15},
+  {n:263,d:'2039-08-15',k:969.47,o:164.94,r:1134.41,p:33709.68},
+  {n:264,d:'2039-09-15',k:974.08,o:160.33,r:1134.41,p:32735.60},
+  {n:265,d:'2039-10-15',k:983.74,o:150.67,r:1134.41,p:31751.86},
+  {n:266,d:'2039-11-15',k:983.39,o:151.02,r:1134.41,p:30768.47},
+  {n:267,d:'2039-12-15',k:992.79,o:141.62,r:1134.41,p:29775.68},
+  {n:268,d:'2040-01-15',k:992.79,o:141.62,r:1134.41,p:28782.89},
+  {n:269,d:'2040-02-15',k:997.51,o:136.90,r:1134.41,p:27785.38},
+  {n:270,d:'2040-03-15',k:1010.78,o:123.63,r:1134.41,p:26774.60},
+  {n:271,d:'2040-04-15',k:1007.07,o:127.34,r:1134.41,p:25767.53},
+  {n:272,d:'2040-05-15',k:1015.81,o:118.60,r:1134.41,p:24751.72},
+  {n:273,d:'2040-06-15',k:1016.69,o:117.72,r:1134.41,p:23735.03},
+  {n:274,d:'2040-07-15',k:1025.16,o:109.25,r:1134.41,p:22709.87},
+  {n:275,d:'2040-08-15',k:1026.40,o:108.01,r:1134.41,p:21683.47},
+  {n:276,d:'2040-09-15',k:1031.28,o:103.13,r:1134.41,p:20652.19},
+  {n:277,d:'2040-10-15',k:1039.35,o:95.06,r:1134.41,p:19612.84},
+  {n:278,d:'2040-11-15',k:1041.13,o:93.28,r:1134.41,p:18571.71},
+  {n:279,d:'2040-12-15',k:1048.93,o:85.48,r:1134.41,p:17522.78},
+  {n:280,d:'2041-01-15',k:1051.07,o:83.34,r:1134.41,p:16471.71},
+  {n:281,d:'2041-02-15',k:1056.07,o:78.34,r:1134.41,p:15415.64},
+  {n:282,d:'2041-03-15',k:1068.19,o:66.22,r:1134.41,p:14347.45},
+  {n:283,d:'2041-04-15',k:1066.17,o:68.24,r:1134.41,p:13281.28},
+  {n:284,d:'2041-05-15',k:1073.28,o:61.13,r:1134.41,p:12208.00},
+  {n:285,d:'2041-06-15',k:1076.35,o:58.06,r:1134.41,p:11131.65},
+  {n:286,d:'2041-07-15',k:1083.17,o:51.24,r:1134.41,p:10048.48},
+  {n:287,d:'2041-08-15',k:1086.62,o:47.79,r:1134.41,p:8961.86},
+  {n:288,d:'2041-09-15',k:1091.79,o:42.62,r:1134.41,p:7870.07},
+  {n:289,d:'2041-10-15',k:1098.19,o:36.22,r:1134.41,p:6771.88},
+  {n:290,d:'2041-11-15',k:1102.20,o:32.21,r:1134.41,p:5669.68},
+  {n:291,d:'2041-12-15',k:1108.31,o:26.10,r:1134.41,p:4561.37},
+  {n:292,d:'2042-01-15',k:1112.72,o:21.69,r:1134.41,p:3448.65},
+  {n:293,d:'2042-02-15',k:1118.01,o:16.40,r:1134.41,p:2330.64},
+  {n:294,d:'2042-03-15',k:1124.40,o:10.01,r:1134.41,p:1206.24},
+  {n:295,d:'2042-04-15',k:1128.67,o:5.74,r:1134.41,p:77.57},
+  {n:296,d:'2042-05-15',k:77.57,o:0.36,r:77.93,p:0.00}
+];
+
+// ============= STATE (LOCALSTORAGE) =============
+const STATE = {
+  monthlyExtra: parseFloat(localStorage.getItem('monthlyExtra') || '0'),
+  fixedTotal: parseFloat(localStorage.getItem('fixedTotal') || '0'),
+  payoffThreshold: parseFloat(localStorage.getItem('payoffThreshold') || '2000'),
+  rate: parseFloat(localStorage.getItem('rate') || String(LOAN.rate)),
+  overpayments: JSON.parse(localStorage.getItem('overpayments') || '[]')
+};
+
+function saveState() {
+  localStorage.setItem('monthlyExtra', STATE.monthlyExtra);
+  localStorage.setItem('fixedTotal', STATE.fixedTotal);
+  localStorage.setItem('payoffThreshold', STATE.payoffThreshold);
+  localStorage.setItem('rate', STATE.rate);
+  localStorage.setItem('overpayments', JSON.stringify(STATE.overpayments));
+}
+
+// ============= UTILS =============
+const fmt = new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN', maximumFractionDigits: 2 });
+const fmtNum = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+const fmtInt = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 });
+
+function pln(v) { return fmt.format(v); }
+function plnNum(v) { return fmtNum.format(v) + ' PLN'; }
+
+function parseDate(s) { return new Date(s + 'T12:00:00'); }
+function fmtDate(d) {
+  if (typeof d === 'string') d = parseDate(d);
+  return d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+function daysBetween(d1, d2) {
+  return Math.round((d2 - d1) / (1000*60*60*24));
+}
+function addMonth(d) {
+  const r = new Date(d);
+  r.setMonth(r.getMonth() + 1);
+  return r;
+}
+function isSameYearMonth(d1, d2) {
+  return d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth();
+}
+
+// ============= COMPUTE: WHAT'S THE NEXT INSTALLMENT (BASED ON TODAY) =============
+function computeCurrentStatus() {
+  const today = new Date();
+  // znajdź kolejną nierozliczoną ratę (data raty >= dzisiaj LUB pierwsza dostępna)
+  let nextIdx = SCHEDULE.findIndex(r => parseDate(r.d) >= today);
+  if (nextIdx < 0) nextIdx = SCHEDULE.length - 1;
+  const next = SCHEDULE[nextIdx];
+  const paidSinceSnapshot = nextIdx; // ile rat z PDFa już zapłacono od snapshotu
+  const installmentsPaidNow = LOAN.installmentsPaid + paidSinceSnapshot;
+  const remainingCount = LOAN.installmentsTotal - installmentsPaidNow;
+  const capitalNow = nextIdx === 0 ? LOAN.remainingCapital : SCHEDULE[nextIdx - 1].p;
+  const interestRemaining = SCHEDULE.slice(nextIdx).reduce((s,r) => s + r.o, 0);
+  const totalRemaining = SCHEDULE.slice(nextIdx).reduce((s,r) => s + r.r, 0);
+  return { next, nextIdx, installmentsPaidNow, remainingCount, capitalNow, interestRemaining, totalRemaining };
+}
+
+// ============= SIMULATION =============
+// Logika: bank zostawia tę samą datę końcową kredytu i przelicza ratę
+// po każdej nadpłacie wzorem annuitetowym z nowym kapitałem i niezmienioną
+// liczbą pozostałych miesięcy.
+//
+// Ważne: dopóki nie wystąpiła żadna nadpłata, używamy danych z PDF (dokładne
+// kwoty banku). Po pierwszej nadpłacie przechodzimy w tryb formuły dla
+// kolejnych rat (z drobnym przybliżeniem).
+function simulate({ monthlyExtra = 0, fixedTotal = 0, payoffThreshold = 2000, rate = LOAN.rate, overpayments = [] }) {
+  const status = computeCurrentStatus();
+  const annualRate = rate / 100;
+  const monthlyRate = annualRate / 12;
+  const snapshotDate = parseDate(LOAN.snapshotDate);
+
+  let capital = status.capitalNow;
+  let pdfIdx = status.nextIdx;
+  let bankInstallment = LOAN.baseInstallment;
+  let monthsLeft = LOAN.totalMonths - status.installmentsPaidNow;
+  if (monthsLeft <= 0) monthsLeft = 1;
+
+  if (pdfIdx >= SCHEDULE.length) {
+    return { schedule: [], totalInterest: 0, totalPaid: 0, totalOverpayment: 0, monthsCount: 0, finalDate: null };
+  }
+
+  let date = parseDate(SCHEDULE[pdfIdx].d);
+  let installmentNo = SCHEDULE[pdfIdx].n;
+  let prevDate;
+  if (pdfIdx > 0) {
+    prevDate = parseDate(SCHEDULE[pdfIdx - 1].d);
+  } else {
+    prevDate = new Date(date);
+    prevDate.setMonth(prevDate.getMonth() - 1);
+  }
+
+  // Nadpłaty po dacie snapshotu, posortowane chronologicznie
+  const queue = overpayments
+    .map(op => ({ dateObj: parseDate(op.date), amount: parseFloat(op.amount) || 0, note: op.note }))
+    .filter(op => op.dateObj >= snapshotDate && op.amount > 0)
+    .sort((a, b) => a.dateObj - b.dateObj);
+  let qIdx = 0;
+
+  const result = [];
+  let totalInterest = 0;
+  let totalPaid = 0;
+  let totalOverpayment = 0;
+  let inSimMode = false;
+  let maxIter = 400;
+
+  const recalcBank = () => {
+    if (capital > 0.01 && monthsLeft > 0 && monthlyRate > 0) {
+      bankInstallment = Math.max(50, capital * monthlyRate / (1 - Math.pow(1 + monthlyRate, -monthsLeft)));
+    }
+  };
+
+  while (capital > 0.01 && maxIter-- > 0) {
+    // FAZA 1 — nadpłaty jednorazowe z datą <= data tej raty (działają PRZED ratą)
+    let opBeforeInstallment = 0;
+    while (qIdx < queue.length && queue[qIdx].dateObj <= date) {
+      if (capital > 0.01) {
+        const reduce = Math.min(queue[qIdx].amount, capital);
+        capital -= reduce;
+        opBeforeInstallment += reduce;
+      }
+      qIdx++;
+    }
+    if (opBeforeInstallment > 0) {
+      inSimMode = true;
+      recalcBank(); // bank natychmiast przelicza ratę
+    }
+
+    // FAZA 2 — wyliczenie tej raty
+    let interest, capitalPart, plannedPayment;
+    if (inSimMode) {
+      const days = daysBetween(prevDate, date);
+      interest = capital * annualRate * days / 365;
+      plannedPayment = bankInstallment;
+      capitalPart = Math.max(0, plannedPayment - interest);
+    } else {
+      const pdfRow = SCHEDULE[pdfIdx];
+      interest = pdfRow.o;
+      capitalPart = pdfRow.k;
+      plannedPayment = pdfRow.r;
+      bankInstallment = pdfRow.r;
+    }
+
+    // FAZA 3 — co użytkownik faktycznie płaci (może być więcej niż wymagana rata)
+    let extraFromFixed = 0;
+    if (fixedTotal > 0 && fixedTotal > plannedPayment) {
+      extraFromFixed = fixedTotal - plannedPayment;
+    }
+    let extraCapitalThisMonth = monthlyExtra + extraFromFixed; // ponad ratę banku
+    let userMonthlyPayment = plannedPayment + extraCapitalThisMonth; // razem
+    let capitalReduction = capitalPart + extraCapitalThisMonth;
+    let isPayoff = false;
+
+    if (capitalReduction >= capital) {
+      capitalReduction = capital;
+      userMonthlyPayment = capital + interest;
+      extraCapitalThisMonth = Math.max(0, capitalReduction - capitalPart);
+      capital = 0;
+      isPayoff = true;
+    } else {
+      capital -= capitalReduction;
+      if (capital <= payoffThreshold && capital > 0.01) {
+        userMonthlyPayment += capital;
+        capitalReduction += capital;
+        extraCapitalThisMonth += capital;
+        capital = 0;
+        isPayoff = true;
+      }
+    }
+
+    totalInterest += interest;
+    totalPaid += userMonthlyPayment + opBeforeInstallment;
+    totalOverpayment += extraCapitalThisMonth + opBeforeInstallment;
+    monthsLeft--;
+
+    result.push({
+      n: installmentNo,
+      date: new Date(date),
+      capital: capitalReduction + opBeforeInstallment, // łączny spadek kapitału w tym okresie
+      interest: interest,
+      installment: userMonthlyPayment + opBeforeInstallment, // łączna wpłata w tym okresie
+      remaining: capital,
+      isPayoff: isPayoff,
+      bankInstallment: plannedPayment, // wymagana rata banku w tym miesiącu
+      extra: extraCapitalThisMonth + opBeforeInstallment,
+      oneTimeOverpayment: opBeforeInstallment
+    });
+
+    if (capital <= 0.01) break;
+
+    // FAZA 4 — po dodatkowej miesięcznej nadpłacie / podwyższonej racie bank też przelicza
+    if (extraCapitalThisMonth > 0) {
+      inSimMode = true;
+      recalcBank();
+    }
+
+    // Następny miesiąc
+    prevDate = new Date(date);
+    if (!inSimMode && pdfIdx + 1 < SCHEDULE.length) {
+      pdfIdx++;
+      date = parseDate(SCHEDULE[pdfIdx].d);
+      installmentNo = SCHEDULE[pdfIdx].n;
+    } else {
+      date = addMonth(date);
+      installmentNo++;
+    }
+  }
+
+  return {
+    schedule: result,
+    totalInterest,
+    totalPaid,
+    totalOverpayment,
+    monthsCount: result.length,
+    finalDate: result.length ? result[result.length-1].date : null
+  };
+}
+
+// ============= BASELINE FROM PDF (no overpayments scenario) =============
+function baselineFromPDF() {
+  const status = computeCurrentStatus();
+  const fromIdx = status.nextIdx;
+  const sched = SCHEDULE.slice(fromIdx).map(r => ({
+    n: r.n,
+    date: parseDate(r.d),
+    capital: r.k,
+    interest: r.o,
+    installment: r.r,
+    remaining: r.p,
+    isPayoff: r.p === 0,
+    bankInstallment: r.r,
+    extra: 0
+  }));
+  return {
+    schedule: sched,
+    totalInterest: sched.reduce((s,r)=>s+r.interest,0),
+    totalPaid: sched.reduce((s,r)=>s+r.installment,0),
+    totalOverpayment: 0,
+    monthsCount: sched.length,
+    finalDate: sched.length ? sched[sched.length-1].date : null
+  };
+}
+
+// ============= RENDER =============
+let charts = {};
+
+function renderStats() {
+  const status = computeCurrentStatus();
+  const baseline = baselineFromPDF();
+  // Karta na górze pokazuje stan rzeczywisty: tylko zapisane jednorazowe nadpłaty.
+  // Hipotetyczne scenariusze A i B są pokazane osobno w zakładce "Symulator nadpłat".
+  const hasRealOverpayments = STATE.overpayments.length > 0;
+  const sim = simulate({
+    payoffThreshold: STATE.payoffThreshold,
+    rate: STATE.rate,
+    overpayments: STATE.overpayments
+  });
+
+  const stats = [
+    { label: 'Pozostały kapitał', value: pln(status.capitalNow), sub: 'aktualizowane na dziś' },
+    { label: 'Pozostało rat', value: status.remainingCount, sub: `z ${LOAN.installmentsTotal} (spłacone: ${status.installmentsPaidNow})` },
+    { label: 'Następna rata', value: pln(status.next.r), sub: `nr ${status.next.n} · ${fmtDate(status.next.d)}` },
+    { label: 'Oprocentowanie', value: STATE.rate.toFixed(2).replace('.', ',') + ' %', sub: 'możesz zmienić w symulatorze' },
+    { label: 'Pozostałe odsetki', value: pln(status.interestRemaining), sub: 'wg planu banku' },
+    { label: 'Razem do spłaty', value: pln(status.totalRemaining), sub: 'kapitał + odsetki' },
+    { label: 'Planowana data spłaty', value: fmtDate(sim.finalDate), sub: hasRealOverpayments ? 'z uwzględnieniem zapisanych nadpłat' : 'wg planu banku' },
+    { label: 'Oszczędność na odsetkach', value: pln(Math.max(0, baseline.totalInterest - sim.totalInterest)), sub: hasRealOverpayments ? 'dzięki zapisanym nadpłatom' : '— dodaj nadpłatę w „Moje nadpłaty"' }
+  ];
+  document.getElementById('stats-grid').innerHTML = stats.map(s => `
+    <div class="card">
+      <div class="stat-label">${s.label}</div>
+      <div class="stat-value">${s.value}</div>
+      <div class="stat-sub">${s.sub}</div>
+    </div>
+  `).join('');
+}
+
+function renderInfoTable() {
+  const rows = [
+    ['Numer rachunku / umowy', LOAN.account],
+    ['Typ kredytu', LOAN.type],
+    ['Data uruchomienia', fmtDate(LOAN.startDate)],
+    ['Kwota udzielonego kredytu', pln(LOAN.amount)],
+    ['Okres kredytowania', LOAN.totalMonths + ' miesięcy'],
+    ['Okres karencji', LOAN.graceMonths + ' miesięcy'],
+    ['Aktualne oprocentowanie', LOAN.rate.toFixed(2).replace('.',',') + ' %'],
+    ['Bazowa rata (stała)', pln(LOAN.baseInstallment)],
+    ['Suma pozostałych rat kapitałowych (snapshot)', pln(LOAN.remainingCapital)],
+    ['Suma pozostałych rat odsetkowych (snapshot)', pln(LOAN.remainingInterest)],
+    ['Razem pozostałe raty (snapshot)', pln(LOAN.totalRemaining)],
+    ['Data snapshotu z PDF', fmtDate(LOAN.snapshotDate)]
+  ];
+  document.getElementById('info-table').innerHTML = rows.map(r => `
+    <tr>
+      <td class="py-2 text-gray-500 pr-4">${r[0]}</td>
+      <td class="py-2 font-semibold text-gray-900 text-right">${r[1]}</td>
+    </tr>
+  `).join('');
+}
+
+// Agreguje rozkład rat w okresy n-miesięczne (suma kapitału i odsetek, etykieta = pierwszy miesiąc okresu)
+function aggregatePeriods(schedule, monthsPerBucket) {
+  const buckets = [];
+  let bucket = null;
+  schedule.forEach((r, i) => {
+    if (i % monthsPerBucket === 0) {
+      bucket = { date: r.date, cap: 0, ods: 0, count: 0 };
+      buckets.push(bucket);
+    }
+    bucket.cap += r.capital;
+    bucket.ods += r.interest;
+    bucket.count++;
+  });
+  return buckets;
+}
+
+// Próbkuje wartości (np. pozostały kapitał) co n miesięcy + ostatni punkt
+function sampleEvery(schedule, valueFn, monthsStep) {
+  const out = [];
+  schedule.forEach((r, i) => {
+    if (i % monthsStep === 0 || i === schedule.length - 1) {
+      out.push({ date: r.date, value: valueFn(r) });
+    }
+  });
+  return out;
+}
+
+const COMMON_OPTS = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { labels: { boxWidth: 12, font: { size: 11 } } },
+    tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + pln(ctx.parsed.y) } }
+  },
+  scales: {
+    x: { ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } },
+    y: { ticks: { font: { size: 10 } } }
+  }
+};
+
+function renderCharts() {
+  const baseline = baselineFromPDF();
+  // Wykresy na pulpicie: plan banku vs zapisane jednorazowe nadpłaty (rzeczywiste).
+  // Scenariusze A/B (hipotetyczne) są pokazywane w zakładce "Symulator nadpłat".
+  const sim = simulate({
+    payoffThreshold: STATE.payoffThreshold,
+    rate: STATE.rate,
+    overpayments: STATE.overpayments
+  });
+
+  // Próbkowanie co 6 miesięcy dla wykresów liniowych
+  const STEP = 6;
+  const baseSamples = sampleEvery(baseline.schedule, r => r.remaining, STEP);
+  const simByMonth = new Map();
+  sim.schedule.forEach(r => simByMonth.set(r.date.getFullYear() + '-' + r.date.getMonth(), r.remaining));
+
+  const labelsLine = baseSamples.map(p => p.date.toLocaleDateString('pl-PL', { month: '2-digit', year: '2-digit' }));
+  const remBase = baseSamples.map(p => p.value);
+  // dla scenariusza z nadpłatami: w punktach próbkowania bierz pozostały kapitał lub 0 jeśli już spłacone
+  let everPaid = false;
+  const remSim = baseSamples.map(p => {
+    const k = p.date.getFullYear() + '-' + p.date.getMonth();
+    if (simByMonth.has(k)) { return simByMonth.get(k); }
+    everPaid = true;
+    return 0;
+  });
+
+  // ----- chart capital (linia, próbki co 6m)
+  if (charts.capital) charts.capital.destroy();
+  charts.capital = new Chart(document.getElementById('chart-capital'), {
+    type: 'line',
+    data: {
+      labels: labelsLine,
+      datasets: [
+        { label: 'Plan banku', data: remBase, borderColor: '#94a3b8', backgroundColor: 'rgba(148,163,184,.15)', fill: true, pointRadius: 2, borderWidth: 2, tension: .25 },
+        { label: 'Z nadpłatami', data: remSim, borderColor: '#1d4ed8', backgroundColor: 'rgba(29,78,216,.12)', fill: true, pointRadius: 2, borderWidth: 2, tension: .25 }
+      ]
+    },
+    options: { ...COMMON_OPTS, scales: { ...COMMON_OPTS.scales, y: { ...COMMON_OPTS.scales.y, ticks: { ...COMMON_OPTS.scales.y.ticks, callback: v => (v/1000).toFixed(0) + ' tys.' } } } }
+  });
+
+  // ----- chart split (półroczne słupki: suma kapitału vs odsetek w okresie 6 m-cy)
+  const buckets = aggregatePeriods(baseline.schedule, STEP);
+  const labelsBuckets = buckets.map(b => b.date.toLocaleDateString('pl-PL', { month: '2-digit', year: '2-digit' }));
+  if (charts.split) charts.split.destroy();
+  charts.split = new Chart(document.getElementById('chart-split'), {
+    type: 'bar',
+    data: {
+      labels: labelsBuckets,
+      datasets: [
+        { label: 'Kapitał', data: buckets.map(b => b.cap), backgroundColor: '#1d4ed8', stack: 'a' },
+        { label: 'Odsetki', data: buckets.map(b => b.ods), backgroundColor: '#fbbf24', stack: 'a' }
+      ]
+    },
+    options: { ...COMMON_OPTS, scales: { x: { ...COMMON_OPTS.scales.x, stacked: true }, y: { ...COMMON_OPTS.scales.y, stacked: true, ticks: { ...COMMON_OPTS.scales.y.ticks, callback: v => (v/1000).toFixed(1) + ' tys.' } } } }
+  });
+
+  // ----- skumulowane odsetki (próbki co 6m)
+  let cum = 0;
+  const cumByMonthBase = new Map();
+  baseline.schedule.forEach(r => { cum += r.interest; cumByMonthBase.set(r.date.getFullYear()+'-'+r.date.getMonth(), cum); });
+  let cumS = 0;
+  const cumByMonthSim = new Map();
+  sim.schedule.forEach(r => { cumS += r.interest; cumByMonthSim.set(r.date.getFullYear()+'-'+r.date.getMonth(), cumS); });
+
+  let lastBase = 0, lastSim = 0;
+  const cumBase = baseSamples.map(p => {
+    const k = p.date.getFullYear() + '-' + p.date.getMonth();
+    if (cumByMonthBase.has(k)) lastBase = cumByMonthBase.get(k);
+    return lastBase;
+  });
+  const cumSim = baseSamples.map(p => {
+    const k = p.date.getFullYear() + '-' + p.date.getMonth();
+    if (cumByMonthSim.has(k)) lastSim = cumByMonthSim.get(k);
+    return lastSim;
+  });
+
+  if (charts.cumi) charts.cumi.destroy();
+  charts.cumi = new Chart(document.getElementById('chart-interest-cum'), {
+    type: 'line',
+    data: {
+      labels: labelsLine,
+      datasets: [
+        { label: 'Plan banku', data: cumBase, borderColor: '#94a3b8', backgroundColor: 'rgba(148,163,184,.15)', fill: true, pointRadius: 2, borderWidth: 2, tension: .25 },
+        { label: 'Z nadpłatami', data: cumSim, borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,.12)', fill: true, pointRadius: 2, borderWidth: 2, tension: .25 }
+      ]
+    },
+    options: { ...COMMON_OPTS, scales: { ...COMMON_OPTS.scales, y: { ...COMMON_OPTS.scales.y, ticks: { ...COMMON_OPTS.scales.y.ticks, callback: v => (v/1000).toFixed(0) + ' tys.' } } } }
+  });
+
+  // ----- yearly summary (zostaje per rok – to już zwięzłe)
+  const yearly = {};
+  baseline.schedule.forEach(r => {
+    const y = r.date.getFullYear();
+    if (!yearly[y]) yearly[y] = { cap: 0, ods: 0 };
+    yearly[y].cap += r.capital;
+    yearly[y].ods += r.interest;
+  });
+  const yLabels = Object.keys(yearly);
+  const yCap = yLabels.map(y => yearly[y].cap);
+  const yOds = yLabels.map(y => yearly[y].ods);
+  if (charts.yearly) charts.yearly.destroy();
+  charts.yearly = new Chart(document.getElementById('chart-yearly'), {
+    type: 'bar',
+    data: {
+      labels: yLabels,
+      datasets: [
+        { label: 'Kapitał', data: yCap, backgroundColor: '#1d4ed8', stack: 'a' },
+        { label: 'Odsetki', data: yOds, backgroundColor: '#fbbf24', stack: 'a' }
+      ]
+    },
+    options: { ...COMMON_OPTS, scales: { x: { ...COMMON_OPTS.scales.x, stacked: true }, y: { ...COMMON_OPTS.scales.y, stacked: true, ticks: { ...COMMON_OPTS.scales.y.ticks, callback: v => (v/1000).toFixed(0) + ' tys.' } } } }
+  });
+}
+
+function renderCompare() {
+  const baseline = baselineFromPDF();
+  const simA = simulate({
+    monthlyExtra: STATE.monthlyExtra,
+    payoffThreshold: STATE.payoffThreshold,
+    rate: STATE.rate,
+    overpayments: STATE.overpayments
+  });
+  const simB = simulate({
+    fixedTotal: STATE.fixedTotal,
+    payoffThreshold: STATE.payoffThreshold,
+    rate: STATE.rate,
+    overpayments: STATE.overpayments
+  });
+
+  const buildCard = (cls, title, sub, data) => {
+    const monthsSaved = baseline.monthsCount - data.monthsCount;
+    const interestSaved = baseline.totalInterest - data.totalInterest;
+    return `
+      <div class="compare-card ${cls}">
+        <div class="text-sm font-bold mb-1">${title}</div>
+        <div class="text-xs text-gray-600 mb-3">${sub}</div>
+        <div class="space-y-1.5 text-sm">
+          <div class="flex justify-between"><span>Liczba rat:</span><span class="font-semibold">${data.monthsCount}</span></div>
+          <div class="flex justify-between"><span>Koniec spłaty:</span><span class="font-semibold">${fmtDate(data.finalDate)}</span></div>
+          <div class="flex justify-between"><span>Suma odsetek:</span><span class="font-semibold">${pln(data.totalInterest)}</span></div>
+          <div class="flex justify-between"><span>Suma wpłat:</span><span class="font-semibold">${pln(data.totalPaid)}</span></div>
+          <div class="flex justify-between"><span>Suma nadpłat:</span><span class="font-semibold">${pln(data.totalOverpayment)}</span></div>
+          ${cls!=='base' ? `
+            <div class="flex justify-between border-t border-gray-300 pt-1 mt-1"><span>Oszczędność na odsetkach:</span><span class="font-bold text-green-700">${pln(Math.max(0,interestSaved))}</span></div>
+            <div class="flex justify-between"><span>Skrócenie:</span><span class="font-bold text-green-700">${monthsSaved} m-cy (${(monthsSaved/12).toFixed(1)} lat)</span></div>
+          ` : ''}
+        </div>
+      </div>`;
+  };
+
+  document.getElementById('compare-cards').innerHTML =
+    buildCard('base', 'Plan banku (bez nadpłat)', 'Bazowy harmonogram', baseline) +
+    buildCard('scenA', `Scenariusz A: + ${plnNum(STATE.monthlyExtra||0)}/mc`, 'Stała nadpłata co miesiąc', simA) +
+    buildCard('scenB', `Scenariusz B: rata ${plnNum(STATE.fixedTotal||0)}/mc`, 'Stała podwyższona rata', simB);
+
+  // wykres porównawczy: pozostały kapitał (próbki co 6 miesięcy)
+  const STEP = 6;
+  const samples = sampleEvery(baseline.schedule, r => r.remaining, STEP);
+  const labels = samples.map(p => p.date.toLocaleDateString('pl-PL', { month: '2-digit', year: '2-digit' }));
+  const remBase = samples.map(p => p.value);
+
+  const mapByMonth = (sched) => {
+    const m = new Map();
+    sched.forEach(r => m.set(r.date.getFullYear()+'-'+r.date.getMonth(), r.remaining));
+    return m;
+  };
+  const mA = mapByMonth(simA.schedule);
+  const mB = mapByMonth(simB.schedule);
+  const lastDateA = simA.finalDate;
+  const lastDateB = simB.finalDate;
+
+  const remA = samples.map(p => {
+    const k = p.date.getFullYear()+'-'+p.date.getMonth();
+    if (mA.has(k)) return mA.get(k);
+    if (lastDateA && p.date > lastDateA) return 0;
+    return null;
+  });
+  const remB = samples.map(p => {
+    const k = p.date.getFullYear()+'-'+p.date.getMonth();
+    if (mB.has(k)) return mB.get(k);
+    if (lastDateB && p.date > lastDateB) return 0;
+    return null;
+  });
+
+  if (charts.compare) charts.compare.destroy();
+  charts.compare = new Chart(document.getElementById('chart-compare'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Plan banku', data: remBase, borderColor: '#94a3b8', fill: false, pointRadius: 2, borderWidth: 2, tension: .25 },
+        { label: 'Scenariusz A', data: remA, borderColor: '#1d4ed8', fill: false, pointRadius: 2, borderWidth: 2, tension: .25, spanGaps: true },
+        { label: 'Scenariusz B', data: remB, borderColor: '#16a34a', fill: false, pointRadius: 2, borderWidth: 2, tension: .25, spanGaps: true }
+      ]
+    },
+    options: { ...COMMON_OPTS, scales: { ...COMMON_OPTS.scales, y: { ...COMMON_OPTS.scales.y, ticks: { ...COMMON_OPTS.scales.y.ticks, callback: v => (v/1000).toFixed(0) + ' tys.' } } } }
+  });
+
+  // wykres skumulowanych wpłat
+  const cumByMonth = (sched) => {
+    const m = new Map();
+    let s = 0;
+    sched.forEach(r => { s += r.installment; m.set(r.date.getFullYear()+'-'+r.date.getMonth(), s); });
+    return m;
+  };
+  const cumBaseM = cumByMonth(baseline.schedule);
+  const cumAM = cumByMonth(simA.schedule);
+  const cumBM = cumByMonth(simB.schedule);
+
+  let lb = 0, la = 0, lc = 0;
+  const lockA = simA.totalPaid;
+  const lockB = simB.totalPaid;
+  const baseCum = samples.map(p => {
+    const k = p.date.getFullYear()+'-'+p.date.getMonth();
+    if (cumBaseM.has(k)) lb = cumBaseM.get(k);
+    return lb;
+  });
+  const aCum = samples.map(p => {
+    const k = p.date.getFullYear()+'-'+p.date.getMonth();
+    if (cumAM.has(k)) la = cumAM.get(k);
+    else if (lastDateA && p.date > lastDateA) la = lockA;
+    return la;
+  });
+  const bCum = samples.map(p => {
+    const k = p.date.getFullYear()+'-'+p.date.getMonth();
+    if (cumBM.has(k)) lc = cumBM.get(k);
+    else if (lastDateB && p.date > lastDateB) lc = lockB;
+    return lc;
+  });
+
+  if (charts.comparePaid) charts.comparePaid.destroy();
+  charts.comparePaid = new Chart(document.getElementById('chart-compare-paid'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Plan banku', data: baseCum, borderColor: '#94a3b8', fill: false, pointRadius: 2, borderWidth: 2, tension: .25 },
+        { label: 'Scenariusz A', data: aCum, borderColor: '#1d4ed8', fill: false, pointRadius: 2, borderWidth: 2, tension: .25 },
+        { label: 'Scenariusz B', data: bCum, borderColor: '#16a34a', fill: false, pointRadius: 2, borderWidth: 2, tension: .25 }
+      ]
+    },
+    options: { ...COMMON_OPTS, scales: { ...COMMON_OPTS.scales, y: { ...COMMON_OPTS.scales.y, ticks: { ...COMMON_OPTS.scales.y.ticks, callback: v => (v/1000).toFixed(0) + ' tys.' } } } }
+  });
+}
+
+function renderOverpayments() {
+  const list = document.getElementById('op-list');
+  const empty = document.getElementById('op-empty');
+  const sum = STATE.overpayments.reduce((s,o) => s + (parseFloat(o.amount)||0), 0);
+  document.getElementById('op-sum').textContent = pln(sum);
+
+  if (STATE.overpayments.length === 0) {
+    list.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  // sortuj po dacie malejąco
+  const sorted = [...STATE.overpayments].sort((a,b) => a.date.localeCompare(b.date));
+  list.innerHTML = sorted.map((op, i) => `
+    <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
+      <div>
+        <div class="font-semibold">${pln(parseFloat(op.amount))}</div>
+        <div class="text-xs text-gray-500">${fmtDate(op.date)}${op.note ? ' · ' + op.note : ''}</div>
+      </div>
+      <button class="btn btn-danger" data-idx="${STATE.overpayments.indexOf(op)}">Usuń</button>
+    </div>
+  `).join('');
+  list.querySelectorAll('button[data-idx]').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.dataset.idx);
+      STATE.overpayments.splice(idx, 1);
+      saveState();
+      renderAll();
+    };
+  });
+}
+
+function renderSchedule() {
+  const mode = document.getElementById('schedule-mode').value;
+  let data;
+  if (mode === 'A') {
+    data = simulate({
+      monthlyExtra: STATE.monthlyExtra,
+      payoffThreshold: STATE.payoffThreshold,
+      rate: STATE.rate,
+      overpayments: STATE.overpayments
+    });
+  } else if (mode === 'B') {
+    data = simulate({
+      fixedTotal: STATE.fixedTotal,
+      payoffThreshold: STATE.payoffThreshold,
+      rate: STATE.rate,
+      overpayments: STATE.overpayments
+    });
+  } else {
+    data = baselineFromPDF();
+  }
+  const today = new Date();
+  document.getElementById('schedule-body').innerHTML = data.schedule.map((r,i) => {
+    const cls = r.isPayoff ? 'payoff' : (i === 0 ? 'next' : '');
+    return `
+      <tr class="${cls}">
+        <td>${r.n}</td>
+        <td>${fmtDate(r.date)}</td>
+        <td>${plnNum(r.capital)}</td>
+        <td>${plnNum(r.interest)}</td>
+        <td>${plnNum(r.installment)}</td>
+        <td>${plnNum(r.remaining)}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderTodayDate() {
+  const today = new Date();
+  document.getElementById('today-date').textContent = today.toLocaleDateString('pl-PL', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+
+function renderAll() {
+  renderTodayDate();
+  renderStats();
+  renderCharts();
+  renderCompare();
+  renderOverpayments();
+  renderSchedule();
+}
+
+// ============= TABS =============
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+    document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
+    // re-render charts when tab becomes visible (Chart.js needs visible canvas)
+    setTimeout(() => {
+      if (btn.dataset.tab === 'dashboard') renderCharts();
+      if (btn.dataset.tab === 'simulator') renderCompare();
+    }, 50);
+  };
+});
+
+// ============= INPUTS =============
+function bindInputs() {
+  const monthlyEl = document.getElementById('input-monthly-extra');
+  const fixedEl = document.getElementById('input-fixed-total');
+  const payoffEl = document.getElementById('input-payoff');
+  const rateEl = document.getElementById('input-rate');
+
+  monthlyEl.value = STATE.monthlyExtra || '';
+  fixedEl.value = STATE.fixedTotal || '';
+  payoffEl.value = STATE.payoffThreshold;
+  rateEl.value = STATE.rate;
+
+  const update = () => {
+    STATE.monthlyExtra = parseFloat(monthlyEl.value) || 0;
+    STATE.fixedTotal = parseFloat(fixedEl.value) || 0;
+    STATE.payoffThreshold = parseFloat(payoffEl.value) || 0;
+    STATE.rate = parseFloat(rateEl.value) || LOAN.rate;
+    saveState();
+    renderAll();
+  };
+  monthlyEl.onchange = update;
+  fixedEl.onchange = update;
+  payoffEl.onchange = update;
+  rateEl.onchange = update;
+  document.getElementById('btn-recalc').onclick = update;
+
+  // schedule mode
+  document.getElementById('schedule-mode').onchange = renderSchedule;
+
+  // overpayment form
+  document.getElementById('op-date').valueAsDate = new Date();
+  document.getElementById('btn-add-op').onclick = () => {
+    const date = document.getElementById('op-date').value;
+    const amount = parseFloat(document.getElementById('op-amount').value);
+    const note = document.getElementById('op-note').value.trim();
+    if (!date || !amount || amount <= 0) {
+      alert('Podaj datę i dodatnią kwotę nadpłaty.');
+      return;
+    }
+    STATE.overpayments.push({ date, amount, note });
+    saveState();
+    document.getElementById('op-amount').value = '';
+    document.getElementById('op-note').value = '';
+    renderAll();
+  };
+}
+
+// ============= INIT =============
+renderInfoTable();
+bindInputs();
+renderAll();
+</script>
+</body>
+</html>
