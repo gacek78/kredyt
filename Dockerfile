@@ -1,0 +1,14 @@
+FROM node:20-alpine AS deps
+# better-sqlite3 kompiluje natywne bindia – potrzebne narzędzia build
+RUN apk add --no-cache python3 make g++
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+FROM node:20-alpine
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY server.js ./
+COPY public/  ./public/
+EXPOSE 3000
+CMD ["node", "server.js"]
