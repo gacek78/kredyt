@@ -548,7 +548,7 @@ function simulate({ monthlyExtra = 0, fixedTotal = 0, payoffThreshold = 2000, ra
   let capital = status.capitalNow;
   let pdfIdx = status.nextIdx;
   let bankInstallment = LOAN.baseInstallment;
-  let monthsLeft = LOAN.totalMonths - status.installmentsPaidNow;
+  let monthsLeft = LOAN.installmentsTotal - status.installmentsPaidNow;
   if (monthsLeft <= 0) monthsLeft = 1;
 
   if (pdfIdx >= SCHEDULE.length) {
@@ -561,8 +561,10 @@ function simulate({ monthlyExtra = 0, fixedTotal = 0, payoffThreshold = 2000, ra
   if (pdfIdx > 0) {
     prevDate = parseDate(SCHEDULE[pdfIdx - 1].d);
   } else {
+    // Derive actual days since last payment from the interest amount in the first PDF row
+    const days0 = Math.round(SCHEDULE[0].o * 365 / (LOAN.remainingCapital * (LOAN.rate / 100)));
     prevDate = new Date(date);
-    prevDate.setMonth(prevDate.getMonth() - 1);
+    prevDate.setDate(prevDate.getDate() - days0);
   }
 
   // Nadpłaty po dacie snapshotu, posortowane chronologicznie
