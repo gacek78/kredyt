@@ -844,7 +844,7 @@ function renderStats() {
     { label: 'Pozostałe odsetki',    value: pln(interestLeft),     sub: hasRealOverpayments ? 'z uwzgl. nadpłat' : (isManual ? 'szacowane od ręcznego kapitału' : 'wg planu banku') },
     { label: 'Razem do spłaty',      value: pln(totalLeft),        sub: 'kapitał + odsetki' },
     { label: 'Planowana data spłaty',value: fmtDate(sim.finalDate),sub: hasRealOverpayments ? 'z uwzględnieniem zapisanych nadpłat' : 'wg planu banku' },
-    { label: 'Oszczędność na odsetkach', value: pln(Math.max(0, baseline.totalInterest - sim.totalInterest)), sub: hasRealOverpayments ? 'dzięki zapisanym nadpłatom' : '— dodaj nadpłatę w „Moje nadpłaty"' }
+    { label: 'Oszczędność na odsetkach', value: hasRealOverpayments ? pln(Math.max(0, baseline.totalInterest - sim.totalInterest)) : pln(0), sub: hasRealOverpayments ? 'dzięki zapisanym nadpłatom' : '— dodaj nadpłatę w „Moje nadpłaty"' }
   ];
   document.getElementById('stats-grid').innerHTML = stats.map(s => `
     <div class="card">
