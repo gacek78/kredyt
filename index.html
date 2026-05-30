@@ -133,6 +133,29 @@
         </div>
       </div>
 
+      <div class="card mb-4 border border-amber-200" style="background:#fffbeb">
+        <h3 class="font-semibold mb-1 text-amber-800">Aktualny stan kredytu</h3>
+        <p class="text-sm text-gray-600 mb-3">Jeśli nie wpisujesz wpłat na bieżąco, wpisz tu aktualny stan z wyciągu bankowego. Aplikacja użyje tych wartości jako punktu startowego – zamiast danych z PDF z 08.05.2026.</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="stat-label">Pozostały kapitał do spłaty</label>
+            <div class="flex items-center gap-2 mt-1">
+              <input type="number" id="input-manual-capital" class="field" step="100" placeholder="np. 143000">
+              <span class="font-semibold">PLN</span>
+            </div>
+            <p class="text-xs text-gray-400 mt-1">Zostaw puste, by używać danych z harmonogramu PDF.</p>
+          </div>
+          <div>
+            <label class="stat-label">Aktualna rata banku</label>
+            <div class="flex items-center gap-2 mt-1">
+              <input type="number" id="input-manual-installment" class="field" step="1" placeholder="np. 1134">
+              <span class="font-semibold">PLN</span>
+            </div>
+            <p class="text-xs text-gray-400 mt-1">Zostaw puste, by używać wartości z harmonogramu PDF.</p>
+          </div>
+        </div>
+      </div>
+
       <div class="card mb-6">
         <h3 class="font-semibold mb-3">Ustawienia ogólne</h3>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -484,6 +507,8 @@ const STATE = {
   fixedTotal: 0,
   payoffThreshold: 2000,
   rate: LOAN.rate,
+  manualCapital: 0,      // 0 = używaj danych z PDF; >0 = ręcznie wpisany pozostały kapitał
+  manualInstallment: 0,  // 0 = używaj danych z PDF; >0 = ręcznie wpisana rata banku
   overpayments: []   // każdy element: { id, date, amount, note }
 };
 
@@ -492,10 +517,12 @@ function saveSettings() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      monthlyExtra:    STATE.monthlyExtra,
-      fixedTotal:      STATE.fixedTotal,
-      payoffThreshold: STATE.payoffThreshold,
-      rate:            STATE.rate
+      monthlyExtra:      STATE.monthlyExtra,
+      fixedTotal:        STATE.fixedTotal,
+      payoffThreshold:   STATE.payoffThreshold,
+      rate:              STATE.rate,
+      manualCapital:     STATE.manualCapital,
+      manualInstallment: STATE.manualInstallment
     })
   }).catch(e => console.error('Błąd zapisu ustawień:', e));
 }
@@ -503,11 +530,13 @@ function saveSettings() {
 async function loadState() {
   const res = await fetch('/api/state');
   const { settings, overpayments } = await res.json();
-  STATE.monthlyExtra    = parseFloat(settings.monthlyExtra    ?? '0');
-  STATE.fixedTotal      = parseFloat(settings.fixedTotal      ?? '0');
-  STATE.payoffThreshold = parseFloat(settings.payoffThreshold ?? '2000');
-  STATE.rate            = parseFloat(settings.rate            ?? LOAN.rate);
-  STATE.overpayments    = overpayments;
+  STATE.monthlyExtra      = parseFloat(settings.monthlyExtra      ?? '0');
+  STATE.fixedTotal        = parseFloat(settings.fixedTotal        ?? '0');
+  STATE.payoffThreshold   = parseFloat(settings.payoffThreshold   ?? '2000');
+  STATE.rate              = parseFloat(settings.rate              ?? LOAN.rate);
+  STATE.manualCapital     = parseFloat(settings.manualCapital     ?? '0');
+  STATE.manualInstallment = parseFloat(settings.manualInstallment ?? '0');
+  STATE.overpayments      = overpayments;
 }
 
 // ============= UTILS =============
@@ -545,7 +574,10 @@ function computeCurrentStatus() {
   const paidSinceSnapshot = nextIdx; // ile rat z PDFa już zapłacono od snapshotu
   const installmentsPaidNow = LOAN.installmentsPaid + paidSinceSnapshot;
   const remainingCount = LOAN.installmentsTotal - installmentsPaidNow;
-  const capitalNow = nextIdx === 0 ? LOAN.remainingCapital : SCHEDULE[nextIdx - 1].p;
+  // Jeśli użytkownik ręcznie wpisał kapitał, użyj tej wartości zamiast harmonogramu PDF
+  const capitalNow = STATE.manualCapital > 0
+    ? STATE.manualCapital
+    : (nextIdx === 0 ? LOAN.remainingCapital : SCHEDULE[nextIdx - 1].p);
   const interestRemaining = SCHEDULE.slice(nextIdx).reduce((s,r) => s + r.o, 0);
   const totalRemaining = SCHEDULE.slice(nextIdx).reduce((s,r) => s + r.r, 0);
   return { next, nextIdx, installmentsPaidNow, remainingCount, capitalNow, interestRemaining, totalRemaining };
@@ -565,9 +597,11 @@ function simulate({ monthlyExtra = 0, fixedTotal = 0, payoffThreshold = 2000, ra
   const monthlyRate = annualRate / 12;
   const snapshotDate = parseDate(LOAN.snapshotDate);
 
+  const isManual = STATE.manualCapital > 0 || STATE.manualInstallment > 0;
+
   let capital = status.capitalNow;
   let pdfIdx = status.nextIdx;
-  let bankInstallment = LOAN.baseInstallment;
+  let bankInstallment = STATE.manualInstallment > 0 ? STATE.manualInstallment : LOAN.baseInstallment;
   let monthsLeft = LOAN.installmentsTotal - status.installmentsPaidNow;
   if (monthsLeft <= 0) monthsLeft = 1;
 
@@ -587,10 +621,12 @@ function simulate({ monthlyExtra = 0, fixedTotal = 0, payoffThreshold = 2000, ra
     prevDate.setDate(prevDate.getDate() - days0);
   }
 
-  // Nadpłaty po dacie snapshotu, posortowane chronologicznie
+  // Nadpłaty po dacie referencyjnej, posortowane chronologicznie.
+  // Gdy ręczny kapitał jest wpisany – ignorujemy nadpłaty sprzed dziś (już są wliczone w podany kapitał).
+  const refDate = isManual ? new Date() : snapshotDate;
   const queue = overpayments
     .map(op => ({ dateObj: parseDate(op.date), amount: parseFloat(op.amount) || 0, note: op.note }))
-    .filter(op => op.dateObj >= snapshotDate && op.amount > 0)
+    .filter(op => op.dateObj >= refDate && op.amount > 0)
     .sort((a, b) => a.dateObj - b.dateObj);
   let qIdx = 0;
 
@@ -598,7 +634,8 @@ function simulate({ monthlyExtra = 0, fixedTotal = 0, payoffThreshold = 2000, ra
   let totalInterest = 0;
   let totalPaid = 0;
   let totalOverpayment = 0;
-  let inSimMode = false;
+  // Gdy ręczny kapitał lub rata – startujemy w trybie formuły (nie używamy danych PDF)
+  let inSimMode = isManual;
   let maxIter = 400;
 
   const recalcBank = () => {
@@ -738,12 +775,21 @@ function baselineFromPDF() {
   };
 }
 
+// Gdy aktywny jest ręczny stan kredytu – liczymy baseline od ręcznych wartości (bez nadpłat).
+// W przeciwnym razie używamy danych z PDF.
+function getBaseline() {
+  if (STATE.manualCapital > 0 || STATE.manualInstallment > 0) {
+    return simulate({ payoffThreshold: STATE.payoffThreshold, rate: STATE.rate, overpayments: [] });
+  }
+  return baselineFromPDF();
+}
+
 // ============= RENDER =============
 let charts = {};
 
 function renderStats() {
   const status = computeCurrentStatus();
-  const baseline = baselineFromPDF();
+  const baseline = getBaseline();
   const hasRealOverpayments = STATE.overpayments.length > 0;
   const sim = simulate({
     payoffThreshold: STATE.payoffThreshold,
@@ -751,38 +797,52 @@ function renderStats() {
     overpayments: STATE.overpayments
   });
 
-  // Aktualny kapitał: baza z PDF minus nadpłaty dokonane od ostatniej zapłaconej raty do dziś.
-  // Dla nextIdx=0 punktem odniesienia jest data snapshotu z PDF.
-  const today = new Date();
-  const lastInstDate = status.nextIdx === 0
-    ? parseDate(LOAN.snapshotDate)
-    : parseDate(SCHEDULE[status.nextIdx - 1].d);
-  const overpaymentsMade = STATE.overpayments
-    .filter(op => {
-      const d = parseDate(op.date);
-      return d >= lastInstDate && d <= today && (parseFloat(op.amount) || 0) > 0;
-    })
-    .reduce((s, op) => s + (parseFloat(op.amount) || 0), 0);
-  const currentCapital = Math.max(0, status.capitalNow - overpaymentsMade);
+  const isManual = STATE.manualCapital > 0 || STATE.manualInstallment > 0;
 
-  // Następna rata: przeliczona wzorem annuitetowym gdy były nadpłaty
-  const monthlyRate = (STATE.rate / 100) / 12;
-  const monthsLeft = status.remainingCount;
-  let nextInstAmount = status.next.r;
-  if (overpaymentsMade > 0 && currentCapital > 0.01 && monthsLeft > 0 && monthlyRate > 0) {
-    nextInstAmount = Math.max(50, currentCapital * monthlyRate / (1 - Math.pow(1 + monthlyRate, -monthsLeft)));
+  let currentCapital, nextInstAmount;
+  if (isManual) {
+    // Ręczny tryb: używamy dokładnie wpisanych wartości (nadpłaty sprzed dziś są już wliczone)
+    currentCapital = STATE.manualCapital > 0 ? STATE.manualCapital : status.capitalNow;
+    nextInstAmount = STATE.manualInstallment > 0 ? STATE.manualInstallment : status.next.r;
+  } else {
+    // Tryb PDF: kapitał z harmonogramu minus ewentualne nadpłaty od ostatniej raty do dziś
+    const today = new Date();
+    const lastInstDate = status.nextIdx === 0
+      ? parseDate(LOAN.snapshotDate)
+      : parseDate(SCHEDULE[status.nextIdx - 1].d);
+    const overpaymentsMade = STATE.overpayments
+      .filter(op => {
+        const d = parseDate(op.date);
+        return d >= lastInstDate && d <= today && (parseFloat(op.amount) || 0) > 0;
+      })
+      .reduce((s, op) => s + (parseFloat(op.amount) || 0), 0);
+    currentCapital = Math.max(0, status.capitalNow - overpaymentsMade);
+    // Następna rata: przeliczona wzorem annuitetowym gdy były nadpłaty
+    const monthlyRate = (STATE.rate / 100) / 12;
+    const monthsLeft = status.remainingCount;
+    nextInstAmount = status.next.r;
+    if (overpaymentsMade > 0 && currentCapital > 0.01 && monthsLeft > 0 && monthlyRate > 0) {
+      nextInstAmount = Math.max(50, currentCapital * monthlyRate / (1 - Math.pow(1 + monthlyRate, -monthsLeft)));
+    }
   }
 
   // Odsetki i suma: z symulacji (uwzględnia wszystkie zapisane nadpłaty)
   const interestLeft = sim.totalInterest;
   const totalLeft = currentCapital + interestLeft;
 
+  const capitalSub = isManual ? 'wpisano ręcznie' : (STATE.overpayments.length > 0 ? 'z uwzgl. nadpłat · na dziś' : 'aktualizowane na dziś');
+  const rateSub = isManual ? 'wpisano ręcznie' : 'możesz zmienić w symulatorze';
+
+  // Aktualizuj etykietę w nagłówku
+  const snapLabel = document.getElementById('snapshot-date');
+  if (snapLabel) snapLabel.textContent = isManual ? 'dane ręcznie wpisane w Symulatorze' : 'stan z dnia symulacji: 08.05.2026';
+
   const stats = [
-    { label: 'Pozostały kapitał',    value: pln(currentCapital),  sub: overpaymentsMade > 0 ? 'z uwzgl. nadpłat · na dziś' : 'aktualizowane na dziś' },
+    { label: 'Pozostały kapitał',    value: pln(currentCapital),  sub: capitalSub },
     { label: 'Pozostało rat',        value: status.remainingCount, sub: `z ${LOAN.installmentsTotal} (spłacone: ${status.installmentsPaidNow})` },
     { label: 'Następna rata',        value: pln(nextInstAmount),   sub: `nr ${status.next.n} · ${fmtDate(status.next.d)}` },
-    { label: 'Oprocentowanie',       value: STATE.rate.toFixed(2).replace('.', ',') + ' %', sub: 'możesz zmienić w symulatorze' },
-    { label: 'Pozostałe odsetki',    value: pln(interestLeft),     sub: hasRealOverpayments ? 'z uwzgl. nadpłat' : 'wg planu banku' },
+    { label: 'Oprocentowanie',       value: STATE.rate.toFixed(2).replace('.', ',') + ' %', sub: rateSub },
+    { label: 'Pozostałe odsetki',    value: pln(interestLeft),     sub: hasRealOverpayments ? 'z uwzgl. nadpłat' : (isManual ? 'szacowane od ręcznego kapitału' : 'wg planu banku') },
     { label: 'Razem do spłaty',      value: pln(totalLeft),        sub: 'kapitał + odsetki' },
     { label: 'Planowana data spłaty',value: fmtDate(sim.finalDate),sub: hasRealOverpayments ? 'z uwzględnieniem zapisanych nadpłat' : 'wg planu banku' },
     { label: 'Oszczędność na odsetkach', value: pln(Math.max(0, baseline.totalInterest - sim.totalInterest)), sub: hasRealOverpayments ? 'dzięki zapisanym nadpłatom' : '— dodaj nadpłatę w „Moje nadpłaty"' }
@@ -860,7 +920,7 @@ const COMMON_OPTS = {
 };
 
 function renderCharts() {
-  const baseline = baselineFromPDF();
+  const baseline = getBaseline();
   // Wykresy na pulpicie: plan banku vs zapisane jednorazowe nadpłaty (rzeczywiste).
   // Scenariusze A/B (hipotetyczne) są pokazywane w zakładce "Symulator nadpłat".
   const sim = simulate({
@@ -976,7 +1036,7 @@ function renderCharts() {
 }
 
 function renderCompare() {
-  const baseline = baselineFromPDF();
+  const baseline = getBaseline();
   const simA = simulate({
     monthlyExtra: STATE.monthlyExtra,
     payoffThreshold: STATE.payoffThreshold,
@@ -1208,7 +1268,7 @@ function renderSchedule() {
       overpayments: STATE.overpayments
     });
   } else {
-    data = baselineFromPDF();
+    data = getBaseline();
   }
   const today = new Date();
   document.getElementById('schedule-body').innerHTML = data.schedule.map((r,i) => {
@@ -1257,28 +1317,36 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
 // ============= INPUTS =============
 function bindInputs() {
-  const monthlyEl = document.getElementById('input-monthly-extra');
-  const fixedEl = document.getElementById('input-fixed-total');
-  const payoffEl = document.getElementById('input-payoff');
-  const rateEl = document.getElementById('input-rate');
+  const monthlyEl          = document.getElementById('input-monthly-extra');
+  const fixedEl            = document.getElementById('input-fixed-total');
+  const payoffEl           = document.getElementById('input-payoff');
+  const rateEl             = document.getElementById('input-rate');
+  const manualCapitalEl    = document.getElementById('input-manual-capital');
+  const manualInstallmentEl = document.getElementById('input-manual-installment');
 
-  monthlyEl.value = STATE.monthlyExtra || '';
-  fixedEl.value = STATE.fixedTotal || '';
-  payoffEl.value = STATE.payoffThreshold;
-  rateEl.value = STATE.rate;
+  monthlyEl.value           = STATE.monthlyExtra || '';
+  fixedEl.value             = STATE.fixedTotal || '';
+  payoffEl.value            = STATE.payoffThreshold;
+  rateEl.value              = STATE.rate;
+  manualCapitalEl.value     = STATE.manualCapital || '';
+  manualInstallmentEl.value = STATE.manualInstallment || '';
 
   const update = () => {
-    STATE.monthlyExtra    = parseFloat(monthlyEl.value) || 0;
-    STATE.fixedTotal      = parseFloat(fixedEl.value)   || 0;
-    STATE.payoffThreshold = parseFloat(payoffEl.value)  || 0;
-    STATE.rate            = parseFloat(rateEl.value)    || LOAN.rate;
+    STATE.monthlyExtra      = parseFloat(monthlyEl.value)           || 0;
+    STATE.fixedTotal        = parseFloat(fixedEl.value)             || 0;
+    STATE.payoffThreshold   = parseFloat(payoffEl.value)            || 0;
+    STATE.rate              = parseFloat(rateEl.value)              || LOAN.rate;
+    STATE.manualCapital     = parseFloat(manualCapitalEl.value)     || 0;
+    STATE.manualInstallment = parseFloat(manualInstallmentEl.value) || 0;
     saveSettings();
     renderAll();
   };
-  monthlyEl.onchange = update;
-  fixedEl.onchange   = update;
-  payoffEl.onchange  = update;
-  rateEl.onchange    = update;
+  monthlyEl.onchange           = update;
+  fixedEl.onchange             = update;
+  payoffEl.onchange            = update;
+  rateEl.onchange              = update;
+  manualCapitalEl.onchange     = update;
+  manualInstallmentEl.onchange = update;
   document.getElementById('btn-recalc').onclick = update;
 
   // schedule mode
