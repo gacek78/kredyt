@@ -1061,7 +1061,7 @@ function renderCompare() {
           <div class="flex justify-between"><span>Liczba rat:</span><span class="font-semibold">${data.monthsCount}</span></div>
           <div class="flex justify-between"><span>Koniec spłaty:</span><span class="font-semibold">${fmtDate(data.finalDate)}</span></div>
           <div class="flex justify-between"><span>Suma odsetek:</span><span class="font-semibold">${pln(data.totalInterest)}</span></div>
-          <div class="flex justify-between"><span>Suma wpłat:</span><span class="font-semibold">${pln(data.totalPaid)}</span></div>
+          <div class="flex justify-between"><span>Łączny koszt (od dziś):</span><span class="font-semibold">${pln(data.totalPaid)}</span></div>
           <div class="flex justify-between"><span>Suma nadpłat:</span><span class="font-semibold">${pln(data.totalOverpayment)}</span></div>
           ${cls!=='base' ? `
             <div class="flex justify-between border-t border-gray-300 pt-1 mt-1"><span>Oszczędność na odsetkach:</span><span class="font-bold text-green-700">${pln(Math.max(0,interestSaved))}</span></div>
